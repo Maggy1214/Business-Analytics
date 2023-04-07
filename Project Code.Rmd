@@ -1,0 +1,460 @@
+---
+title: "BA final project"
+author: "Meghana Udiga"
+date: '2022-12-12'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+library(readr)
+library(tidyverse)
+library(caret)
+library(pROC)
+library(ggcorrplot)
+library(party)
+library(rpart)
+library(RANN)
+library(rpart.plot)
+library(class)
+library(dplyr)
+library(tidyr)
+library(rattle)
+library(mice)
+library(ranger)
+
+
+
+
+#### Importing the Churn dataset
+```{r}
+
+library(dplyr)
+Churn_Data_Sample <- read.csv ("C:/Meghana Udiga/Churn_Train (2).csv")
+View(Churn_Data_Sample)
+
+# Inspecting data
+
+str(Churn_Data_Sample)
+
+#Examining the dataset
+
+glimpse(Churn_Data_Sample)
+
+```
+
+#showing the Summary of statistics in the  dataset
+```{r}
+summary(Churn_Data_Sample)
+```
+
+
+
+##Converting the categorical variables to numeric
+```{r}
+
+Churn_Data_Sample$state <- as.factor(Churn_Data_Sample$state)
+Churn_Data_Sample$area_code <- as.factor(Churn_Data_Sample$area_code)
+Churn_Data_Sample$international_plan <- as.factor(Churn_Data_Sample$international_plan)
+Churn_Data_Sample$voice_mail_plan <- as.factor(Churn_Data_Sample$voice_mail_plan)
+Churn_Data_Sample$churn <- as.factor(Churn_Data_Sample$churn)
+Churn_true  <- subset(Churn_Data_Sample, Churn_Data_Sample$churn == "yes")
+Churn_false <- subset(Churn_Data_Sample, Churn_Data_Sample$churn == "no")
+
+```
+#Number of churn count of yes/no
+```{r}
+Churn_Count<-table(Churn_Data_Sample$churn)
+Churn_Count
+```
+
+
+
+# checking the skewness,Distribution of each variable in the dataset
+
+```{r}
+library(ggcorrplot)
+library(tidyr)
+Churn_Data_Sample[, 6:19] %>%
+  gather(key = Variable, value = Value) %>%
+  ggplot() +
+  geom_histogram(aes(x = Value), fill = "skyblue") +
+  facet_wrap(~Variable, scales='free') +
+  theme_classic() +
+  theme(aspect.ratio = 0.5, axis.title = element_blank(), panel.grid = element_blank())
+```
+
+
+
+We can determine a bell curve distribution of data for the vast majority of the data or variables from the output mentioned above. Additionally, we can see that the "Total day minutes" and "Total evening minutes" have a negligible or substantial number of outliers. Additionally, it is obvious that "Customer Service calls" has an odd skewness..
+#From the churn data, we will deteremine the number of customers.
+
+```{r}
+
+Churn_Count
+
+```
+
+
+
+
+barplot(Churn_Count,xlab ="Churn",ylab="Count" ,col = "darkblue" ,main = "Number of Customers based on 
+        the churn data")
+
+We can see from the figures above that 2850 customers chose not to move, while 483 customers chose to use a different supplier.
+From the information provided above, we can infer that exactly 483 clients merely changed service providers for a variety of reasons. 2850 clients have continued to use the present service provider (as is)
+
+#Now we will determine the number of customers based on the State
+```{r}
+Churn_Count_State<-Churn_true %>% group_by(state) %>% summarise(Churn_State_Count=n())
+ChurnOnStates <- Churn_Data_Sample %>% group_by(Churn_Data_Sample$state, Churn_Data_Sample$churn) %>% summarise(count = n())
+```
+
+
+
+
+## using the "summarise()" function has grouped output by ’Churn_Data_Sample$state’. You can override using the ‘.groups‘ argument
+
+
+```{r}
+
+ggplot(Churn_Count_State) +
+  aes(x = state, weight = Churn_State_Count) +
+  geom_bar(fill = "#557CC2") +
+  labs(x = "State", y = "Count", title = "Churn Rate by state") +
+  theme_light()
+
+```
+
+
+
+From the above graph, it is clear that the churn rate is high in States Maryland, New Jersey, Michigan and Texas.
+#Now lets  distribute the Churn data by the Total day charges.
+
+```{r}
+ggplot(Churn_Data_Sample) +
+  aes(x = churn, y = total_day_charge, fill = churn) +
+  geom_boxplot(shape = "Square") +
+  scale_fill_hue(direction = 1) +
+  labs(x = "Churn", y = "total_day_charge",title = "Distribution of churn data by the total day charge")
+  theme_minimal()+
+  theme(plot.title = element_text(size = 16L,
+                                  face = "bold", hjust = 0.5))
+```
+
+
+
+The above distribution clearly shows that the customers with the day charge of 30-40 are more likely to cancel the services with the current providers and shift to other providers.
+#Now we will determine the customers with the international package and shifted to another provider based on the churn data.
+
+```{r}
+
+ggplot(data = Churn_Data_Sample, aes(x = international_plan, y = ..count.., fill = churn)) +
+  geom_bar(stat = "count") +
+stat_count(geom = "text", colour = "black", size = 3.5,
+aes(label = ..count..),position=position_stack(vjust=0.5))
+
+```
+
+
+
+
+```{r}
+
+Churn_true %>%
+  group_by(international_plan) %>%
+  select(international_plan) %>%
+  dplyr:: summarise("Churn Count" =n(), "Percent" = n()/483)
+
+```
+
+
+
+From the above results, the percentage of the customers who are part of  international plan have moved to another provider. It shows that 28% of all customers with the international plan are likely to churn.
+#Now lets determine the customers who churned depending on the number of customer service calls.
+
+```{r}
+
+ggplot(Churn_Data_Sample) +
+  aes(x = churn, y = number_customer_service_calls, fill = churn) +
+  geom_boxplot(shape = "circle") +
+  scale_fill_hue(direction = 3) +
+  labs(title = "Churn Rate based on number of Customer Service Calls") +
+  theme_light() +
+  theme(plot.title = element_text(size = 14L, face = "bold", hjust = 0.5))
+
+```
+
+
+
+```{r}
+
+ Churn_true %>%
+  filter(number_customer_service_calls >= 1 & number_customer_service_calls <= 4) %>%
+  tally()/483
+
+```
+
+
+
+From the above box plot distribution, we can notice that the customers who reached out to customer service are more than 2-4 times, are highly likely to move to other providers. It can be interpretted that approximately 64% of all customers who reached out to the customer service for 1-4 times churned.
+
+
+#Data Cleaning:-
+
+
+#We will now sort the missing values. We will impute the missing values using mice package.
+```{r}
+set.seed(123)
+```
+
+
+# According to Mice, total_night_charge and total_intl_charge are multi-collinear variables.Hence, mice will not impute missing values for these columns. The following steps are to be executed.
+```{r}
+library(mice)
+Churn_Data_Sample$total_night_charge[1] <- 2
+Churn_Data_Sample$total_intl_charge[1] <- 0.5
+miceMod <- mice(Churn_Data_Sample[, -20], method="rf")
+```
+
+
+#Performing mice imputation using random forests.
+```{r}
+miceOutput <- complete(miceMod) # Generating the complete data. anyNA(miceOutput)
+
+# Generating the completed data.
+anyNA(miceOutput)
+
+```
+
+
+
+
+
+```{r}
+Churn_Data_Sample_Imputed <- mutate(miceOutput,churn=Churn_Data_Sample$churn)
+summary(Churn_Data_Sample)
+
+```
+
+
+```{r}
+
+str(Churn_Data_Sample)
+churn_yes<-Churn_Data_Sample_Imputed %>% filter(churn=='yes')
+Corr_churn_cust<- cor(churn_yes[, 6:19])
+
+```
+
+
+To determine the correlation between the variables where churn is equal to Yes, we will use the ggplot to represent.
+{r}
+ggcorrplot(Corr_churn_cust, method = "circle", type = "lower", ggtheme = theme_linedraw)
+
+
+The total day fee and the number of customer support calls, total foreign costs, and total evening charges for the churners are strongly correlated negatively, according to the ggplot. The statistics show that customer support calls have a greater churn rate than other calls since the fees are higher.
+
+Model Selection: Using a predictive model based on regression and Decision Tree Models, it is demonstrated how different variables affect and are significant in predicting the outcome of the dependent variable.
+There are two ways to express regression:
+Regular Regression
+Rational Regression
+A logistic regression model is superior to others since the dependent variable (target variable) in this data is categorical. As a model, linear regression
+Since the dependent variable(target variable) in this information is categorical, a logistic regression model is more appropriate in comparision to other. While linear regression as a model is appealing, the performance probability may be negative or more than 1, which is useless for predicting a binomial feature. The optimum outcome for this model is a probability or likelihood of chances that falls between 0 and 1, as determined by logistic regression.
+
+Furthermore, after analyzing the dataset, We picked Logistic Regression and Decision Models as appropriate ones, since classification is our prime objective.
+
+We will utilize the two models on our dataset and check for the model performance and select the best one to be the final model to predict the test dataset.
+Using Logistic Regression and Decision Tree Models to Determine Predictive Ability:
+Before choosing a model, the following procedures were followed:
+
+1. To avoid overfitting the model, the dataset has been separated into training and validation sets.
+2. Creating a logistic regression model and predicting the validation set results.
+3. Validating the model's performance with a confusion matrix.
+4. Create a decision tree model and anticipate the validation set's findings.
+5. Validating the model's performance with a confusion matrix. 6. Considering the results of both models and selecting the best one.
+
+#Data Partitioning
+```{r}
+library(caret)
+set.seed(123)
+index<- createDataPartition(Churn_Data_Sample_Imputed$churn,p=0.8,list=FALSE)
+train_data<-Churn_Data_Sample_Imputed[index,]
+validation_data <- Churn_Data_Sample_Imputed[-index,]
+
+```
+
+
+
+
+#Building a Logistic Regression model:- 
+Based on prior observations of a data set, logistic regression is a statistical analytic approach for predicting a binary outcome, such as yes or no. A logistic regression model analyzes the relationship between one or more independent factors to predict a dependent data variable. A logistic regression, for example, could be used to predict whether a political candidate will win or lose an election, or whether a high school student would be admitted or not to a specific college. These binary outcomes allow for simple comparisons between two options.
+
+```{r}
+set.seed(123)
+Logistic_Model <- glm(churn~.,data=train_data ,family = "binomial" ) #summary(Logistic_Model)
+predict_validation<-predict(Logistic_Model,validation_data,type="response")
+head(predict_validation)
+
+```
+
+
+
+
+
+
+```{r}
+Resultcheck1<-ifelse(predict_validation > 0.5,'yes','no')
+#Accuracy Check
+Error1<-mean(Resultcheck1!=validation_data$churn)
+Accuracy1 <-1- Error1
+print(Accuracy1)
+
+
+```
+
+
+
+
+```{r}
+library(rpart.plot)
+library(tidyverse)
+library(pROC)
+plot.roc(validation_data$churn,predict_validation)
+
+```
+
+
+
+
+#here lets use a confusion matrix for the logistic regression model.
+
+
+```{r}
+set.seed(123)
+Logistic_Confusionmatrix <- confusionMatrix(as.factor(Resultcheck1),as.factor(validation_data$churn))
+Logistic_Confusionmatrix
+
+```
+
+
+
+The following are the results produced from the confusion matrix :- 1. Accuracy :- 86.19% 2. Sensitivity :- 97.02% 3. Specificity:- 21.88%
+
+#Building a Decision Tree Model :- Decision tree analysis is basicallyproducing a tree-shaped diagram to chart out a course of action or a statistical probability analysis. It is used to break down complex problems or branches into simpler things. Each branch of the decision tree could be a possible outcome.
+
+
+
+```{r}
+
+set.seed(123)
+DecisionTree_Model<- rpart(churn ~ .,data=train_data,method = 'class') # Show the variable importance
+
+DecisionTree_Model$variable.importance
+# Show the split for variable
+head(DecisionTree_Model$splits)
+
+
+```
+
+
+
+```{r}
+#Predicting the probability
+Probability_DecisionTree <- predict(DecisionTree_Model, newdata = validation_data, type = "prob")
+#determining AUC Value
+roc(validation_data$churn,Probability_DecisionTree[,2])
+
+
+#Now we will use a Confusion Matrix for the Decision Tree Model.
+```
+
+
+
+```{r}
+set.seed(123)
+Class_Decision_Tree <- predict(DecisionTree_Model, newdata = validation_data, type = "class")
+confusionMatrix(as.factor(Class_Decision_Tree),as.factor(validation_data$churn))
+
+```
+
+
+
+
+From the Confusion Matrix, the following conclusions have been made :- 
+1. Accuracy :- 91.14% 
+2. Sensitivity :- 97.02% 
+3. Specificity:- 56.25%
+Choosing the optimal model:-
+By comparing both the models, it can easily interpreted that the Decision Tree Model is the best model to use as it has higher accuracy than the logistical Regression Model. Though the Sensitivities of both the models are equal, Decision Tree has a higher specificity. Hence, Decision Tree Model is the right and optimal Model to use.
+Now lets build the final model using the test data and the Decision Tree Algorithm to predict the Churn.
+
+```{r}
+
+set.seed(123)
+#After testing for accuracy using validation and training data we can use the total data for building  
+#We can use the actual dataset to predict the churn only after Testing for accuracy using 
+ABCWireless_Model<- rpart(churn ~ .,data= Churn_Data_Sample_Imputed,method = 'class')
+
+```
+
+
+```{r}
+install.packages("rpart.plot")
+library(rpart.plot)
+library(rpart)
+#Determining the Model Splits.
+head(ABCWireless_Model$splits)
+#Plotting Decision Tree
+library(rpart.plot)
+library(rattle)
+fancyRpartPlot(ABCWireless_Model)
+rpart.plot(ABCWireless_Model, cex=0.5)
+```
+
+
+
+
+
+
+```{r}
+#Probability Prediction
+Probability_decision_tree <- predict(ABCWireless_Model, newdata = Churn_Data_Sample_Imputed, type = "prob")
+#Determining the AUC Value
+roc(Churn_Data_Sample_Imputed$churn,Probability_decision_tree[,2])
+```
+
+
+
+
+#Prediction of the Test Data:-
+```{r}
+set.seed(123)
+
+load("C:/Users/ravin/Downloads/Customers_To_Predict.RData")
+
+count(Customers_To_Predict)
+summary(Customers_To_Predict)
+#Check for NA Values
+colMeans(is.na(Customers_To_Predict))
+
+Churn_Probability <- predict(ABCWireless_Model,Customers_To_Predict,type = "prob")
+head(Churn_Probability)
+
+ Predict_Churn <- predict(ABCWireless_Model,Customers_To_Predict,type = "class")
+head(Predict_Churn)
+ Predict_Churn<- as.data.frame(Predict_Churn)
+summary(Predict_Churn)
+
+```
+```{r}
+ggplot(Predict_Churn) +
+ aes(x = Predict_Churn) +
+ geom_bar(fill = "orange")+
+ labs(x = "Customers Churning or not churning",
+ y = "Number of Customers", title = "Number of Customers likely to Churn") +
+ theme_minimal() +
+ theme(plot.title = element_text(size = 14L,
+ face = "bold", hjust = 0.5), axis.title.y = element_text(size = 14L, face = "bold"), axis.title.x = element_text(size = 14L,face = "bold"))
+```
+
+
